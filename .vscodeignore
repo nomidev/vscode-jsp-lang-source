@@ -1,0 +1,30 @@
+# 소스 (컴파일된 out/ 만 vsix에 포함)
+client/src/**
+server/src/**
+**/*.ts
+!**/*.d.ts
+**/*.map
+**/tsconfig.json
+tsconfig.json
+
+# 개발용 파일
+.vscode/**
+**/.gitignore
+**/*.tsbuildinfo
+**/README.md
+!README.md
+
+# 루트 node_modules는 devDependency(typescript 빌드용)만 있어서 런타임에 불필요
+node_modules/**
+
+# client/server 내부에서도 타입 정의(@types)는 런타임에 불필요
+client/node_modules/@types/**
+server/node_modules/@types/**
+
+# 패키지 매니페스트(런타임에는 out/*.js만 실행되므로 불필요)
+client/package.json
+client/package-lock.json
+server/package.json
+server/package-lock.json
+
+.vscodeignore

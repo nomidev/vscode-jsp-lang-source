@@ -1,0 +1,85 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "JSP",
+  "scopeName": "text.html.jsp",
+  "patterns": [
+    { "include": "#jsp-comment" },
+    { "include": "#jsp-directive" },
+    { "include": "#jsp-declaration" },
+    { "include": "#jsp-expression" },
+    { "include": "#jsp-scriptlet" },
+    { "include": "#el-expression" },
+    { "include": "text.html.basic" }
+  ],
+  "repository": {
+    "jsp-comment": {
+      "name": "comment.block.jsp",
+      "begin": "<%--",
+      "end": "--%>",
+      "captures": { "0": { "name": "punctuation.definition.comment.jsp" } }
+    },
+    "jsp-directive": {
+      "name": "meta.tag.directive.jsp",
+      "begin": "<%@",
+      "end": "%>",
+      "beginCaptures": { "0": { "name": "punctuation.section.embedded.begin.jsp" } },
+      "endCaptures": { "0": { "name": "punctuation.section.embedded.end.jsp" } },
+      "patterns": [
+        {
+          "name": "keyword.control.directive.jsp",
+          "match": "\\b(page|include|taglib|attribute|variable|tag)\\b"
+        },
+        {
+          "name": "entity.other.attribute-name.jsp",
+          "match": "\\b(import|contentType|pageEncoding|isELIgnored|isErrorPage|errorPage|extends|session|buffer|autoFlush|info|language|isThreadSafe|file|uri|prefix|tagdir|name|required|rtexprvalue|type|description|deferredValue|deferredMethod)\\b(?=\\s*=)"
+        },
+        {
+          "name": "string.quoted.double.jsp",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "name": "constant.character.escape.jsp", "match": "\\\\." }]
+        },
+        {
+          "name": "string.quoted.single.jsp",
+          "begin": "'",
+          "end": "'",
+          "patterns": [{ "name": "constant.character.escape.jsp", "match": "\\\\." }]
+        }
+      ]
+    },
+    "jsp-declaration": {
+      "name": "meta.embedded.block.java",
+      "begin": "<%!",
+      "end": "%>",
+      "beginCaptures": { "0": { "name": "punctuation.section.embedded.begin.jsp" } },
+      "endCaptures": { "0": { "name": "punctuation.section.embedded.end.jsp" } },
+      "contentName": "source.java"
+    },
+    "jsp-expression": {
+      "name": "meta.embedded.line.java",
+      "begin": "<%=",
+      "end": "%>",
+      "beginCaptures": { "0": { "name": "punctuation.section.embedded.begin.jsp" } },
+      "endCaptures": { "0": { "name": "punctuation.section.embedded.end.jsp" } },
+      "contentName": "source.java"
+    },
+    "jsp-scriptlet": {
+      "name": "meta.embedded.block.java",
+      "begin": "<%(?![@!=])",
+      "end": "%>",
+      "beginCaptures": { "0": { "name": "punctuation.section.embedded.begin.jsp" } },
+      "endCaptures": { "0": { "name": "punctuation.section.embedded.end.jsp" } },
+      "contentName": "source.java"
+    },
+    "el-expression": {
+      "name": "meta.embedded.line.el",
+      "match": "([$#])(\\{)([^}]*)(\\})",
+      "captures": {
+        "1": { "name": "punctuation.definition.expression.jsp" },
+        "2": { "name": "punctuation.section.embedded.begin.el" },
+        "3": { "name": "source.el" },
+        "4": { "name": "punctuation.section.embedded.end.el" }
+      }
+    }
+  }
+}
