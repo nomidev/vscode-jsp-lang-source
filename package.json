@@ -2,18 +2,32 @@
   "name": "vscode-jsp-lang",
   "displayName": "JSP Language Support (HTML/JS Embedded)",
   "description": "JSP syntax highlighting + IntelliSense for embedded HTML and JavaScript",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "local-dev",
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Programming Languages"],
-  "activationEvents": ["onLanguage:jsp"],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:jsp"
+  ],
   "main": "./client/out/extension.js",
   "contributes": {
     "languages": [
       {
         "id": "jsp",
-        "aliases": ["JSP", "jsp"],
-        "extensions": [".jsp", ".jspx", ".jspf", ".tag"],
+        "aliases": [
+          "JSP",
+          "jsp"
+        ],
+        "extensions": [
+          ".jsp",
+          ".jspx",
+          ".jspf",
+          ".tag"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -31,12 +45,15 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run compile && npm run bundle",
     "compile": "tsc -b",
+    "bundle": "node esbuild.js",
     "watch": "tsc -b -w",
+    "package": "bash scripts/pack.sh",
     "postinstall": "cd client && npm install && cd ../server && npm install"
   },
   "devDependencies": {
+    "esbuild": "^0.28.1",
     "typescript": "^5.4.5"
   }
 }

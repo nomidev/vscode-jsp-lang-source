@@ -1,11 +1,33 @@
-# 소스 (컴파일된 out/ 만 vsix에 포함)
+# 소스 (esbuild로 번들된 client/out, server/out 만 vsix에 포함)
 client/src/**
 server/src/**
 **/*.ts
-!**/*.d.ts
+!server/out/typescript-libs/**
 **/*.map
 **/tsconfig.json
 tsconfig.json
+esbuild.js
+
+# esbuild로 typescript, vscode-languageserver 등은 단일 파일로 번들했기 때문에
+# node_modules 대부분은 런타임에 더 이상 필요 없다.
+# 단, vscode-html-languageservice는 내부에 동적 require가 있어 번들이 깨지므로
+# external로 두고 그 패키지 + 최소 의존성만 그대로 함께 배포한다.
+node_modules/**
+client/node_modules/**
+server/node_modules/**
+!server/node_modules/vscode-html-languageservice/**
+!server/node_modules/vscode-languageserver-types/**
+!server/node_modules/vscode-languageserver-textdocument/**
+!server/node_modules/vscode-uri/**
+!server/node_modules/@vscode/**
+server/node_modules/vscode-html-languageservice/**/*.md
+server/node_modules/vscode-html-languageservice/src/**
+
+# 패키지 매니페스트도 런타임에는 불필요 (out/*.js만 실행됨)
+client/package.json
+client/package-lock.json
+server/package.json
+server/package-lock.json
 
 # 개발용 파일
 .vscode/**
@@ -13,18 +35,5 @@ tsconfig.json
 **/*.tsbuildinfo
 **/README.md
 !README.md
-
-# 루트 node_modules는 devDependency(typescript 빌드용)만 있어서 런타임에 불필요
-node_modules/**
-
-# client/server 내부에서도 타입 정의(@types)는 런타임에 불필요
-client/node_modules/@types/**
-server/node_modules/@types/**
-
-# 패키지 매니페스트(런타임에는 out/*.js만 실행되므로 불필요)
-client/package.json
-client/package-lock.json
-server/package.json
-server/package-lock.json
 
 .vscodeignore

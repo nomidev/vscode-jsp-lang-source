@@ -23,7 +23,11 @@ const COMMON_TAGLIBS = [
   { prefix: 'fn', uri: 'http://java.sun.com/jsp/jstl/functions' }
 ];
 
-export function getJspCompletions(document: TextDocument, position: Position): CompletionList {
+export function getJspCompletions(
+  document: TextDocument,
+  position: Position,
+  discoveredTaglibs: { prefix: string; uri: string }[] = []
+): CompletionList {
   const offset = document.offsetAt(position);
   const text = document.getText();
   const before = text.slice(Math.max(0, offset - 200), offset);
@@ -63,7 +67,10 @@ export function getJspCompletions(document: TextDocument, position: Position): C
   }));
 
   if (kind === 'taglib') {
-    for (const t of COMMON_TAGLIBS) {
+    const seen = new Set<string>();
+    for (const t of [...COMMON_TAGLIBS, ...discoveredTaglibs]) {
+      if (seen.has(t.uri)) continue;
+      seen.add(t.uri);
       items.push({
         label: `${t.prefix} (${t.uri})`,
         kind: CompletionItemKind.Snippet,
