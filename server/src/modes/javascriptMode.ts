@@ -12,6 +12,20 @@ const FILE_NAME = 'jsp-embedded-script.js';
 const LIB_DIR = path.join(__dirname, 'typescript-libs');
 const DOM_LIB_PATH = path.join(LIB_DIR, 'lib.dom.d.ts');
 
+const COMPILER_OPTIONS: ts.CompilerOptions = {
+  target: ts.ScriptTarget.ES2020,
+  allowJs: true,
+  checkJs: false,
+  module: ts.ModuleKind.ESNext
+};
+
+// 주의: TS LanguageService는 getDefaultLibFileName을 호출한다고 해서 그 파일을
+// 프로그램에 자동으로 포함시켜주지 않는다. getScriptFileNames() 목록에 직접
+// 넣어줘야 Array/Object/String 같은 전역 타입이 실제로 로드된다.
+// (이걸 빠뜨리면 모든 값이 타입 추론 없이 {}로 잡히고, 멤버 자동완성/설명이 비게 된다.)
+const DEFAULT_LIB_PATH = path.join(LIB_DIR, ts.getDefaultLibFileName(COMPILER_OPTIONS));
+const PROGRAM_LIB_FILES = [DEFAULT_LIB_PATH, DOM_LIB_PATH];
+
 let currentText = '';
 let scriptVersion = 0;
 
@@ -20,7 +34,7 @@ let scriptVersion = 0;
 // - lib 파일: 실제 typescript-libs 디렉토리에서 그대로 읽어온다 (ts.sys에 의존하지 않음 -> 번들 후에도 안전)
 function createHost(): ts.LanguageServiceHost {
   return {
-    getScriptFileNames: () => [FILE_NAME, DOM_LIB_PATH],
+    getScriptFileNames: () => [FILE_NAME, ...PROGRAM_LIB_FILES],
     getScriptVersion: fileName => (fileName === FILE_NAME ? String(scriptVersion) : '1'),
     getScriptSnapshot: fileName => {
       if (fileName === FILE_NAME) return ts.ScriptSnapshot.fromString(currentText);
@@ -28,19 +42,8 @@ function createHost(): ts.LanguageServiceHost {
       return undefined;
     },
     getCurrentDirectory: () => '',
-    getCompilationSettings: () => ({
-      target: ts.ScriptTarget.ES2020,
-      allowJs: true,
-      checkJs: false,
-      module: ts.ModuleKind.ESNext
-      // lib 옵션은 지정하지 않는다. target(ES2020)에 대응하는 기본 lib는
-      // getDefaultLibFileName이 가리키는 typescript-libs 안의 파일로 자동 로드되고,
-      // DOM 타입(window/document 등)은 getScriptFileNames에 lib.dom.d.ts를 추가로
-      // 얹어서 전역 선언으로 병합되게 한다.
-    }),
-    // typescript.js가 require()로 번들되어 있어 실제 파일 시스템 경로가 없으므로,
-    // 기본 lib 파일 경로를 우리가 복사해 둔 typescript-libs 쪽으로 직접 고정한다.
-    getDefaultLibFileName: options => path.join(LIB_DIR, ts.getDefaultLibFileName(options)),
+    getCompilationSettings: () => COMPILER_OPTIONS,
+    getDefaultLibFileName: () => DEFAULT_LIB_PATH,
     fileExists: fileName => fileName === FILE_NAME || fs.existsSync(fileName),
     readFile: fileName => {
       if (fileName === FILE_NAME) return currentText;
@@ -102,8 +105,17 @@ export function getJsHover(
   const info = languageService.getQuickInfoAtPosition(FILE_NAME, offset);
   if (!info) return null;
 
-  const text = ts.displayPartsToString(info.displayParts);
+  const signature = ts.displayPartsToString(info.displayParts);
+  const documentation = ts.displayPartsToString(info.documentation);
+  const tags = (info.tags ?? [])
+    .map(tag => `*@${tag.name}* ${tag.text ? ts.displayPartsToString(tag.text) : ''}`)
+    .join('\n\n');
+
+  const parts = ['```typescript', signature, '```'];
+  if (documentation) parts.push('', documentation);
+  if (tags) parts.push('', tags);
+
   return {
-    contents: { kind: 'markdown', value: '```typescript\n' + text + '\n```' }
+    contents: { kind: 'markdown', value: parts.join('\n') }
   };
 }
