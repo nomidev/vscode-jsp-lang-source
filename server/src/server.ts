@@ -7,6 +7,7 @@ import {
   TextDocumentSyncKind,
   InitializeResult,
   CompletionList,
+  Definition,
   Hover,
   DidChangeWatchedFilesNotification
 } from 'vscode-languageserver/node';
@@ -14,7 +15,7 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 
 import { getDocumentRegions } from './embeddedSupport';
 import { getHtmlCompletions, getHtmlHover } from './modes/htmlMode';
-import { getJsCompletions, getJsHover } from './modes/javascriptMode';
+import { getJsCompletions, getJsHover, getJsDefinition } from './modes/javascriptMode';
 import { getJspCompletions } from './modes/jspMode';
 import { getTaglibCompletions, getDiscoveredTaglibSuggestions } from './modes/taglibMode';
 import { TldRegistry } from './tldRegistry';
@@ -56,7 +57,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
         resolveProvider: false,
         triggerCharacters: ['<', '"', "'", '=', '/', ' ', '%', '@', '.', '$', '{', ':']
       },
-      hoverProvider: true
+      hoverProvider: true,
+      definitionProvider: true
     }
   };
 });
@@ -121,6 +123,24 @@ connection.onHover((params): Hover | null => {
     case 'html':
       return getHtmlHover(document, regions, params.position);
     default:
+      return null;
+  }
+});
+
+connection.onDefinition((params): Definition | null => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return null;
+
+  const regions = getDocumentRegions(document);
+  const offset = document.offsetAt(params.position);
+  const languageId = regions.getLanguageAtPosition(offset);
+
+  switch (languageId) {
+    case 'javascript':
+      // <script> 안의 함수/변수 정의로 이동 (같은 문서 내 정의 + typescript 내장 lib .d.ts 정의)
+      return getJsDefinition(document, regions, params.position);
+    default:
+      // html/jsp 영역의 정의 이동(예: 커스텀 태그 -> tld 파일)은 아직 미구현
       return null;
   }
 });

@@ -1,7 +1,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { pathToFileURL } from 'url';
 import * as ts from 'typescript';
-import { CompletionList, CompletionItemKind, Hover, Position } from 'vscode-languageserver';
+import {
+  CompletionList,
+  CompletionItemKind,
+  Definition,
+  Hover,
+  Location,
+  Position
+} from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { DocumentRegions } from '../embeddedSupport';
 
@@ -118,4 +126,58 @@ export function getJsHover(
   return {
     contents: { kind: 'markdown', value: parts.join('\n') }
   };
+}
+
+// lib.*.d.ts 처럼 우리 문서가 아닌 파일의 오프셋 -> 위치 변환용 (읽기 캐시)
+const libDocCache = new Map<string, TextDocument>();
+function getLibDocument(fileName: string): TextDocument | null {
+  let doc = libDocCache.get(fileName);
+  if (doc) return doc;
+  if (!fs.existsSync(fileName)) return null;
+  const content = fs.readFileSync(fileName, 'utf8');
+  doc = TextDocument.create(pathToFileURL(fileName).toString(), 'typescript', 1, content);
+  libDocCache.set(fileName, doc);
+  return doc;
+}
+
+export function getJsDefinition(
+  document: TextDocument,
+  regions: DocumentRegions,
+  position: Position
+): Definition | null {
+  const embedded = syncText(regions);
+  const offset = embedded.offsetAt(position);
+
+  const defs = languageService.getDefinitionAtPosition(FILE_NAME, offset);
+  if (!defs || defs.length === 0) return null;
+
+  const locations: Location[] = [];
+  for (const def of defs) {
+    if (def.fileName === FILE_NAME) {
+      // 같은 <script> 블록 안의 정의: 임베디드 문서 오프셋이 원본 JSP 문서와
+      // 완전히 동일하므로(마스킹은 길이를 바꾸지 않음) 그대로 매핑된다.
+      locations.push({
+        uri: document.uri,
+        range: {
+          start: document.positionAt(def.textSpan.start),
+          end: document.positionAt(def.textSpan.start + def.textSpan.length)
+        }
+      });
+      continue;
+    }
+
+    // typescript-libs 안의 내장 정의 (예: Array.prototype.push) - 확장에 실제로
+    // 포함된 lib .d.ts 파일이므로 file:// 링크로 그대로 열어볼 수 있다.
+    const libDoc = getLibDocument(def.fileName);
+    if (!libDoc) continue;
+    locations.push({
+      uri: pathToFileURL(def.fileName).toString(),
+      range: {
+        start: libDoc.positionAt(def.textSpan.start),
+        end: libDoc.positionAt(def.textSpan.start + def.textSpan.length)
+      }
+    });
+  }
+
+  return locations.length > 0 ? locations : null;
 }
