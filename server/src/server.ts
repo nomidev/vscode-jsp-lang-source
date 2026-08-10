@@ -100,7 +100,7 @@ connection.onCompletion((params): CompletionList => {
 
   switch (languageId) {
     case 'javascript':
-      return getJsCompletions(document, regions, params.position);
+      return getJsCompletions(document, regions, params.position, workspaceRoots);
     case 'jsp':
       return getJspCompletions(document, params.position, getDiscoveredTaglibSuggestions(tldRegistry));
     case 'html':
@@ -119,7 +119,7 @@ connection.onHover((params): Hover | null => {
 
   switch (languageId) {
     case 'javascript':
-      return getJsHover(document, regions, params.position);
+      return getJsHover(document, regions, params.position, workspaceRoots);
     case 'html':
       return getHtmlHover(document, regions, params.position);
     default:
@@ -138,7 +138,7 @@ connection.onDefinition((params): Definition | null => {
   switch (languageId) {
     case 'javascript':
       // <script> 안의 함수/변수 정의로 이동 (같은 문서 내 정의 + typescript 내장 lib .d.ts 정의)
-      return getJsDefinition(document, regions, params.position);
+      return getJsDefinition(document, regions, params.position, workspaceRoots);
     default:
       // html/jsp 영역의 정의 이동(예: 커스텀 태그 -> tld 파일)은 아직 미구현
       return null;

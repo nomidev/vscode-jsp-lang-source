@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { pathToFileURL } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import * as ts from 'typescript';
 import {
   CompletionList,
@@ -27,6 +27,30 @@ const COMPILER_OPTIONS: ts.CompilerOptions = {
   module: ts.ModuleKind.ESNext
 };
 
+// <script src="..."> 값을 실제 디스크 파일 경로로 해석한다.
+// - http(s):// , // 로 시작하는 외부 URL은 대상이 아니므로 무시
+// - "/"로 시작하면 워크스페이스 루트 기준 절대경로로 간주해 각 루트에서 순서대로 탐색
+// - 그 외에는 현재 문서 기준 상대경로로 해석
+function resolveScriptPath(
+  src: string,
+  documentFsPath: string | null,
+  workspaceRoots: string[]
+): string | null {
+  if (/^(https?:)?\/\//i.test(src)) return null;
+
+  if (src.startsWith('/')) {
+    for (const root of workspaceRoots) {
+      const candidate = path.join(root, src);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    return null;
+  }
+
+  if (!documentFsPath) return null;
+  const candidate = path.resolve(path.dirname(documentFsPath), src);
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
 // 주의: TS LanguageService는 getDefaultLibFileName을 호출한다고 해서 그 파일을
 // 프로그램에 자동으로 포함시켜주지 않는다. getScriptFileNames() 목록에 직접
 // 넣어줘야 Array/Object/String 같은 전역 타입이 실제로 로드된다.
@@ -36,14 +60,24 @@ const PROGRAM_LIB_FILES = [DEFAULT_LIB_PATH, DOM_LIB_PATH];
 
 let currentText = '';
 let scriptVersion = 0;
+let currentImportedFiles: string[] = [];
+
+function fileVersion(fileName: string): string {
+  try {
+    return String(fs.statSync(fileName).mtimeMs);
+  } catch {
+    return '0';
+  }
+}
 
 // 문서 하나짜리 초경량 LanguageServiceHost.
 // - 스크립트 파일: 매 요청 시 최신 텍스트로 갱신
+// - <script src="...">로 참조된 외부 js 파일: 실제 디스크 경로 그대로 프로그램에 포함 (mtime으로 변경 감지)
 // - lib 파일: 실제 typescript-libs 디렉토리에서 그대로 읽어온다 (ts.sys에 의존하지 않음 -> 번들 후에도 안전)
 function createHost(): ts.LanguageServiceHost {
   return {
-    getScriptFileNames: () => [FILE_NAME, ...PROGRAM_LIB_FILES],
-    getScriptVersion: fileName => (fileName === FILE_NAME ? String(scriptVersion) : '1'),
+    getScriptFileNames: () => [FILE_NAME, ...PROGRAM_LIB_FILES, ...currentImportedFiles],
+    getScriptVersion: fileName => (fileName === FILE_NAME ? String(scriptVersion) : fileVersion(fileName)),
     getScriptSnapshot: fileName => {
       if (fileName === FILE_NAME) return ts.ScriptSnapshot.fromString(currentText);
       if (fs.existsSync(fileName)) return ts.ScriptSnapshot.fromString(fs.readFileSync(fileName, 'utf8'));
@@ -74,19 +108,37 @@ const KIND_MAP: Record<string, CompletionItemKind> = {
   [ts.ScriptElementKind.interfaceElement]: CompletionItemKind.Interface
 };
 
-function syncText(regions: DocumentRegions): TextDocument {
+function syncText(
+  document: TextDocument,
+  regions: DocumentRegions,
+  workspaceRoots: string[]
+): TextDocument {
   const embedded = regions.getEmbeddedDocument('javascript');
   currentText = embedded.getText();
   scriptVersion++;
+
+  let documentFsPath: string | null = null;
+  try {
+    documentFsPath = fileURLToPath(document.uri);
+  } catch {
+    documentFsPath = null;
+  }
+
+  currentImportedFiles = regions
+    .getImportedScripts()
+    .map(src => resolveScriptPath(src, documentFsPath, workspaceRoots))
+    .filter((p): p is string => p !== null);
+
   return embedded;
 }
 
 export function getJsCompletions(
   document: TextDocument,
   regions: DocumentRegions,
-  position: Position
+  position: Position,
+  workspaceRoots: string[]
 ): CompletionList {
-  const embedded = syncText(regions);
+  const embedded = syncText(document, regions, workspaceRoots);
   const offset = embedded.offsetAt(position);
 
   const completions = languageService.getCompletionsAtPosition(FILE_NAME, offset, {});
@@ -94,7 +146,7 @@ export function getJsCompletions(
 
   return {
     isIncomplete: false,
-    items: completions.entries.slice(0, 100).map(entry => ({
+    items: completions.entries.map(entry => ({
       label: entry.name,
       kind: KIND_MAP[entry.kind] ?? CompletionItemKind.Text,
       sortText: entry.sortText
@@ -105,9 +157,10 @@ export function getJsCompletions(
 export function getJsHover(
   document: TextDocument,
   regions: DocumentRegions,
-  position: Position
+  position: Position,
+  workspaceRoots: string[]
 ): Hover | null {
-  const embedded = syncText(regions);
+  const embedded = syncText(document, regions, workspaceRoots);
   const offset = embedded.offsetAt(position);
 
   const info = languageService.getQuickInfoAtPosition(FILE_NAME, offset);
@@ -143,9 +196,10 @@ function getLibDocument(fileName: string): TextDocument | null {
 export function getJsDefinition(
   document: TextDocument,
   regions: DocumentRegions,
-  position: Position
+  position: Position,
+  workspaceRoots: string[]
 ): Definition | null {
-  const embedded = syncText(regions);
+  const embedded = syncText(document, regions, workspaceRoots);
   const offset = embedded.offsetAt(position);
 
   const defs = languageService.getDefinitionAtPosition(FILE_NAME, offset);

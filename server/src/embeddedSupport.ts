@@ -16,6 +16,8 @@ export interface EmbeddedRegion {
 export interface DocumentRegions {
   getLanguageAtPosition(offset: number): EmbeddedLanguageId;
   getEmbeddedDocument(languageId: EmbeddedLanguageId): TextDocument;
+  /** <script src="..."> 로 참조된 외부 JS 파일 경로(원본 문자열, 미해석) 목록 */
+  getImportedScripts(): string[];
 }
 
 const htmlLanguageService = getHTMLLanguageService();
@@ -65,23 +67,46 @@ export function getDocumentRegions(document: TextDocument): DocumentRegions {
     regions.push({ languageId: 'jsp', start: m.index, end: m.index + m[0].length });
   }
 
-  // 2) JSP 블록을 공백 처리한 텍스트로 HTML 스캐너를 돌려 <script>/<style> 영역 탐지
+  // 2) JSP 블록을 공백 처리한 텍스트로 HTML 스캐너를 돌려 <script>/<style> 영역 및 <script src="...">를 탐지
+  const importedScripts: string[] = [];
   const htmlScanText = maskOnly(text, jspRanges);
   const scanner = htmlLanguageService.createScanner(htmlScanText);
+  let lastTagName = '';
+  let lastAttributeName: string | undefined;
   let token = scanner.scan();
   while (token !== TokenType.EOS) {
-    if (token === TokenType.Script) {
-      regions.push({
-        languageId: 'javascript',
-        start: scanner.getTokenOffset(),
-        end: scanner.getTokenEnd()
-      });
-    } else if (token === TokenType.Styles) {
-      regions.push({
-        languageId: 'css',
-        start: scanner.getTokenOffset(),
-        end: scanner.getTokenEnd()
-      });
+    switch (token) {
+      case TokenType.StartTag:
+        lastTagName = scanner.getTokenText();
+        lastAttributeName = undefined;
+        break;
+      case TokenType.Script:
+        regions.push({
+          languageId: 'javascript',
+          start: scanner.getTokenOffset(),
+          end: scanner.getTokenEnd()
+        });
+        break;
+      case TokenType.Styles:
+        regions.push({
+          languageId: 'css',
+          start: scanner.getTokenOffset(),
+          end: scanner.getTokenEnd()
+        });
+        break;
+      case TokenType.AttributeName:
+        lastAttributeName = scanner.getTokenText();
+        break;
+      case TokenType.AttributeValue:
+        if (lastAttributeName === 'src' && lastTagName.toLowerCase() === 'script') {
+          let value = scanner.getTokenText();
+          if (value.length >= 2 && (value[0] === '"' || value[0] === "'")) {
+            value = value.substring(1, value.length - 1);
+          }
+          if (value) importedScripts.push(value);
+        }
+        lastAttributeName = undefined;
+        break;
     }
     token = scanner.scan();
   }
@@ -115,6 +140,9 @@ export function getDocumentRegions(document: TextDocument): DocumentRegions {
         document.version,
         content
       );
+    },
+    getImportedScripts(): string[] {
+      return importedScripts;
     }
   };
 }
