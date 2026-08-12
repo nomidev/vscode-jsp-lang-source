@@ -54,6 +54,18 @@ function maskOnly(text: string, blankRanges: { start: number; end: number }[]): 
   return chars.join('');
 }
 
+// Vue 디렉티브(v-on:click, @click, v-bind:foo, :foo, v-model, v-if, ...)나
+// 표준 이벤트 핸들러(onclick, onchange, ...) 속성의 값은 JS 표현식이므로,
+// <script> 본문과 마찬가지로 JS 언어 서비스가 다루도록 인식한다.
+function isJsExpressionAttribute(attrName: string): boolean {
+  const lower = attrName.toLowerCase();
+  if (lower.startsWith('on') && lower.length > 2) return true; // onclick, onchange, ...
+  if (attrName.startsWith('@')) return true; // @click (v-on 단축 문법)
+  if (attrName.startsWith(':') && attrName.length > 1) return true; // :disabled (v-bind 단축 문법)
+  if (/^v-[\w-]+/.test(attrName)) return true; // v-model, v-if, v-on:click, v-bind:foo, ...
+  return false;
+}
+
 export function getDocumentRegions(document: TextDocument): DocumentRegions {
   const text = document.getText();
   const regions: EmbeddedRegion[] = [];
@@ -97,16 +109,28 @@ export function getDocumentRegions(document: TextDocument): DocumentRegions {
       case TokenType.AttributeName:
         lastAttributeName = scanner.getTokenText();
         break;
-      case TokenType.AttributeValue:
+      case TokenType.AttributeValue: {
         if (lastAttributeName === 'src' && lastTagName.toLowerCase() === 'script') {
           let value = scanner.getTokenText();
           if (value.length >= 2 && (value[0] === '"' || value[0] === "'")) {
             value = value.substring(1, value.length - 1);
           }
           if (value) importedScripts.push(value);
+        } else if (lastAttributeName && isJsExpressionAttribute(lastAttributeName)) {
+          const raw = scanner.getTokenText();
+          const start = scanner.getTokenOffset();
+          const end = scanner.getTokenEnd();
+          // 따옴표를 뺀 내부 텍스트만 JS 영역으로 추가 (따옴표 자체는 JS가 아니므로)
+          const hasQuotes = raw.length >= 2 && (raw[0] === '"' || raw[0] === "'");
+          const innerStart = hasQuotes ? start + 1 : start;
+          const innerEnd = hasQuotes ? end - 1 : end;
+          if (innerEnd > innerStart) {
+            regions.push({ languageId: 'javascript', start: innerStart, end: innerEnd });
+          }
         }
         lastAttributeName = undefined;
         break;
+      }
     }
     token = scanner.scan();
   }

@@ -12,6 +12,7 @@ import {
 } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { DocumentRegions } from '../embeddedSupport';
+import { findVueMemberOffset } from './vueHeuristics';
 
 const FILE_NAME = 'jsp-embedded-script.js';
 
@@ -203,6 +204,17 @@ function getLibDocument(fileName: string): TextDocument | null {
   return doc;
 }
 
+// offset이 속한 식별자(identifier) 전체 텍스트를 뽑아낸다 (Vue 휴리스틱 폴백용)
+function getIdentifierAt(text: string, offset: number): string | null {
+  const isIdentChar = (ch: string) => /[\w$]/.test(ch);
+  let start = offset;
+  while (start > 0 && isIdentChar(text[start - 1])) start--;
+  let end = offset;
+  while (end < text.length && isIdentChar(text[end])) end++;
+  if (start === end) return null;
+  return text.slice(start, end);
+}
+
 export function getJsDefinition(
   document: TextDocument,
   regions: DocumentRegions,
@@ -213,7 +225,26 @@ export function getJsDefinition(
   const offset = embedded.offsetAt(position);
 
   const defs = languageService.getDefinitionAtPosition(FILE_NAME, offset);
-  if (!defs || defs.length === 0) return null;
+  if (!defs || defs.length === 0) {
+    // TS가 못 찾은 경우: Vue methods/computed/data 안의 동일 이름 속성으로 한 번 더 시도
+    // (methods: { foo(){} } 같은 객체 속성은 템플릿의 @click="foo"와 정적으로 연결되지 않으므로)
+    const name = getIdentifierAt(currentText, offset);
+    if (name) {
+      const found = findVueMemberOffset(currentText, name);
+      if (found) {
+        return [
+          {
+            uri: document.uri,
+            range: {
+              start: document.positionAt(found.start),
+              end: document.positionAt(found.end)
+            }
+          }
+        ];
+      }
+    }
+    return null;
+  }
 
   const locations: Location[] = [];
   for (const def of defs) {
