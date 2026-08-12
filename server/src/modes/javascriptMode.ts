@@ -62,6 +62,14 @@ let currentText = '';
 let scriptVersion = 0;
 let currentImportedFiles: string[] = [];
 
+// jsp.javascript.globalScopeFolders 설정으로 지정된 폴더에서 스캔된 .js 파일 목록.
+// server.ts가 설정이 바뀌거나 파일이 추가/삭제될 때마다 setGlobalScopeFiles로 갱신해준다.
+let globalScopeFiles: string[] = [];
+
+export function setGlobalScopeFiles(files: string[]): void {
+  globalScopeFiles = files;
+}
+
 function fileVersion(fileName: string): string {
   try {
     return String(fs.statSync(fileName).mtimeMs);
@@ -76,7 +84,9 @@ function fileVersion(fileName: string): string {
 // - lib 파일: 실제 typescript-libs 디렉토리에서 그대로 읽어온다 (ts.sys에 의존하지 않음 -> 번들 후에도 안전)
 function createHost(): ts.LanguageServiceHost {
   return {
-    getScriptFileNames: () => [FILE_NAME, ...PROGRAM_LIB_FILES, ...currentImportedFiles],
+    getScriptFileNames: () => [
+      ...new Set([FILE_NAME, ...PROGRAM_LIB_FILES, ...currentImportedFiles, ...globalScopeFiles])
+    ],
     getScriptVersion: fileName => (fileName === FILE_NAME ? String(scriptVersion) : fileVersion(fileName)),
     getScriptSnapshot: fileName => {
       if (fileName === FILE_NAME) return ts.ScriptSnapshot.fromString(currentText);

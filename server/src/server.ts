@@ -9,23 +9,28 @@ import {
   CompletionList,
   Definition,
   Hover,
-  DidChangeWatchedFilesNotification
+  DidChangeWatchedFilesNotification,
+  DidChangeConfigurationNotification
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 
 import { getDocumentRegions } from './embeddedSupport';
 import { getHtmlCompletions, getHtmlHover } from './modes/htmlMode';
-import { getJsCompletions, getJsHover, getJsDefinition } from './modes/javascriptMode';
+import { getJsCompletions, getJsHover, getJsDefinition, setGlobalScopeFiles } from './modes/javascriptMode';
 import { getJspCompletions } from './modes/jspMode';
 import { getTaglibCompletions, getDiscoveredTaglibSuggestions } from './modes/taglibMode';
 import { TldRegistry } from './tldRegistry';
+import { GlobalScopeIndex } from './globalScope';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
 const tldRegistry = new TldRegistry();
+const globalScopeIndex = new GlobalScopeIndex();
 
 let workspaceRoots: string[] = [];
 let clientSupportsWatchedFiles = false;
+let clientSupportsPullConfig = false;
+let globalScopeFolders: string[] = [];
 
 function toFsPath(uri: string): string | null {
   try {
@@ -33,6 +38,39 @@ function toFsPath(uri: string): string | null {
   } catch {
     return null;
   }
+}
+
+// jsp.javascript.globalScopeFolders 설정을 읽어와 globalScopeFolders를 갱신하고,
+// 그 폴더들을 다시 스캔해서 javascriptMode의 전역 스코프 파일 목록을 최신화한다.
+async function refreshGlobalScope(): Promise<void> {
+  if (clientSupportsPullConfig) {
+    try {
+      const value = await connection.workspace.getConfiguration({
+        section: 'jsp.javascript.globalScopeFolders'
+      });
+      globalScopeFolders = Array.isArray(value) ? value.filter(v => typeof v === 'string') : [];
+    } catch (err) {
+      connection.console.error(`[jsp] config fetch failed: ${String(err)}`);
+    }
+  }
+
+  try {
+    const result = await globalScopeIndex.scan(workspaceRoots, globalScopeFolders);
+    setGlobalScopeFiles(result.files);
+    warnAboutMissingFolders(result.missingFolders);
+  } catch (err) {
+    connection.console.error(`[jsp] global scope scan failed: ${String(err)}`);
+  }
+}
+
+function warnAboutMissingFolders(missingFolders: string[]): void {
+  if (missingFolders.length === 0) return;
+  const rootList = workspaceRoots.length > 0 ? workspaceRoots.join(', ') : '(워크스페이스 루트 없음)';
+  connection.window.showWarningMessage(
+    `jsp.javascript.globalScopeFolders: 다음 폴더를 워크스페이스 루트 기준으로 찾을 수 없습니다 - ${missingFolders.join(
+      ', '
+    )} (워크스페이스 루트: ${rootList}). 경로가 올바른지 확인해주세요.`
+  );
 }
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
@@ -49,6 +87,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 
   clientSupportsWatchedFiles =
     !!params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration;
+  clientSupportsPullConfig = !!params.capabilities.workspace?.configuration;
 
   return {
     capabilities: {
@@ -69,20 +108,40 @@ connection.onInitialized(() => {
     connection.console.error(`[jsp] tld scan failed: ${String(err)}`);
   });
 
-  // .tld 파일이 추가/수정/삭제되면 다시 스캔하도록 감시 등록
+  // jsp.javascript.globalScopeFolders 설정을 읽어 초기 스캔
+  refreshGlobalScope();
+
+  // 설정이 바뀌면(jsp.javascript.globalScopeFolders 등) 다시 읽어 재스캔
+  if (clientSupportsPullConfig) {
+    connection.client
+      .register(DidChangeConfigurationNotification.type, {})
+      .catch(err => connection.console.error(`[jsp] config watcher register failed: ${String(err)}`));
+  }
+
+  // .tld 파일이나 .js 파일이 추가/수정/삭제되면 다시 스캔하도록 감시 등록
   if (clientSupportsWatchedFiles) {
     connection.client
       .register(DidChangeWatchedFilesNotification.type, {
-        watchers: [{ globPattern: '**/*.tld' }]
+        watchers: [{ globPattern: '**/*.tld' }, { globPattern: '**/*.js' }]
       })
       .catch(err => connection.console.error(`[jsp] watcher register failed: ${String(err)}`));
   }
+});
+
+connection.onDidChangeConfiguration(() => {
+  refreshGlobalScope();
 });
 
 connection.onDidChangeWatchedFiles(() => {
   tldRegistry.scanWorkspace(workspaceRoots).catch(err => {
     connection.console.error(`[jsp] tld rescan failed: ${String(err)}`);
   });
+  // globalScopeFolders 안의 .js 파일이 추가/삭제됐을 수 있으니 목록만 다시 스캔
+  // (설정 자체는 안 바뀌었으므로 workspace/configuration을 다시 물어볼 필요는 없음)
+  globalScopeIndex
+    .scan(workspaceRoots, globalScopeFolders)
+    .then(result => setGlobalScopeFiles(result.files))
+    .catch(err => connection.console.error(`[jsp] global scope rescan failed: ${String(err)}`));
 });
 
 connection.onCompletion((params): CompletionList => {

@@ -2,7 +2,7 @@
   "name": "vscode-jsp-lang",
   "displayName": "JSP Language Support (HTML/JS Embedded)",
   "description": "JSP syntax highlighting + IntelliSense for embedded HTML and JavaScript",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "publisher": "local-dev",
   "engines": {
     "vscode": "^1.85.0"
@@ -42,7 +42,20 @@
           "source.java": "java"
         }
       }
-    ]
+    ],
+    "configuration": {
+      "title": "JSP Language Support",
+      "properties": {
+        "jsp.javascript.globalScopeFolders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "이 폴더(워크스페이스 루트 기준 상대경로) 안의 .js 파일은 <script src>로 명시적으로 연결되어 있지 않아도 항상 전역 스코프에 포함됩니다. AJAX 등으로 런타임에 동적으로 로드되는 스크립트처럼 정적 분석으로 추적할 수 없는 파일에 사용하세요. 예: [\"src/main/webapp/js/common\"]"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile && npm run bundle",
