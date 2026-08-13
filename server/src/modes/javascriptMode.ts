@@ -13,10 +13,7 @@ import {
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { DocumentRegions } from '../embeddedSupport';
 import { findVueMemberOffset } from './vueHeuristics';
-<<<<<<< HEAD
 import { findPrototypeChainDefinition, getMemberAccessContext } from './prototypeHeuristics';
-=======
->>>>>>> 82c5eb0bba809b272d5aa0420b6f20075e8ae540
 
 const FILE_NAME = 'jsp-embedded-script.js';
 
@@ -230,7 +227,6 @@ export function getJsDefinition(
 
   const defs = languageService.getDefinitionAtPosition(FILE_NAME, offset);
   if (!defs || defs.length === 0) {
-<<<<<<< HEAD
     // TS가 못 찾은 경우 1: base.member / this.member 형태면 ES5 프로토타입 상속
     // 체인(Object.create, new Parent() 등)을 따라가며 부모 프로토타입 멤버를 찾아본다
     // (base가 있으므로 Vue 휴리스틱보다 더 정밀함 - 먼저 시도)
@@ -252,9 +248,6 @@ export function getJsDefinition(
     }
 
     // TS가 못 찾은 경우 2: Vue methods/computed/data 안의 동일 이름 속성으로 시도
-=======
-    // TS가 못 찾은 경우: Vue methods/computed/data 안의 동일 이름 속성으로 한 번 더 시도
->>>>>>> 82c5eb0bba809b272d5aa0420b6f20075e8ae540
     // (methods: { foo(){} } 같은 객체 속성은 템플릿의 @click="foo"와 정적으로 연결되지 않으므로)
     const name = getIdentifierAt(currentText, offset);
     if (name) {
@@ -271,10 +264,7 @@ export function getJsDefinition(
         ];
       }
     }
-<<<<<<< HEAD
 
-=======
->>>>>>> 82c5eb0bba809b272d5aa0420b6f20075e8ae540
     return null;
   }
 

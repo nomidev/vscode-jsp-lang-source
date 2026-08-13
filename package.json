@@ -2,11 +2,7 @@
   "name": "vscode-jsp-lang",
   "displayName": "JSP Language Support (HTML/JS Embedded)",
   "description": "JSP syntax highlighting + IntelliSense for embedded HTML and JavaScript",
-<<<<<<< HEAD
   "version": "0.6.0",
-=======
-  "version": "0.5.0",
->>>>>>> 82c5eb0bba809b272d5aa0420b6f20075e8ae540
   "publisher": "local-dev",
   "engines": {
     "vscode": "^1.85.0"
