@@ -15,7 +15,7 @@ import {
 import { TextDocument } from 'vscode-languageserver-textdocument';
 
 import { getDocumentRegions } from './embeddedSupport';
-import { getHtmlCompletions, getHtmlHover } from './modes/htmlMode';
+import { getHtmlCompletions, getHtmlHover, getDocumentFormattingEdits } from './modes/htmlMode';
 import { getJsCompletions, getJsHover, getJsDefinition, setGlobalScopeFiles } from './modes/javascriptMode';
 import { getJspCompletions } from './modes/jspMode';
 import { getTaglibCompletions, getDiscoveredTaglibSuggestions } from './modes/taglibMode';
@@ -97,7 +97,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
         triggerCharacters: ['<', '"', "'", '=', '/', ' ', '%', '@', '.', '$', '{', ':']
       },
       hoverProvider: true,
-      definitionProvider: true
+      definitionProvider: true,
+      documentFormattingProvider: true
     }
   };
 });
@@ -202,6 +203,12 @@ connection.onDefinition((params): Definition | null => {
       // html/jsp 영역의 정의 이동(예: 커스텀 태그 -> tld 파일)은 아직 미구현
       return null;
   }
+});
+
+connection.onDocumentFormatting(params => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return [];
+  return getDocumentFormattingEdits(document, params.options);
 });
 
 documents.listen(connection);
