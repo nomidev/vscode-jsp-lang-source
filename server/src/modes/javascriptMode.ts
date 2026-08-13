@@ -12,6 +12,8 @@ import {
 } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { DocumentRegions } from '../embeddedSupport';
+import { findVueMemberOffset } from './vueHeuristics';
+import { findPrototypeChainDefinition, getMemberAccessContext } from './prototypeHeuristics';
 
 const FILE_NAME = 'jsp-embedded-script.js';
 
@@ -62,6 +64,14 @@ let currentText = '';
 let scriptVersion = 0;
 let currentImportedFiles: string[] = [];
 
+// jsp.javascript.globalScopeFolders 설정으로 지정된 폴더에서 스캔된 .js 파일 목록.
+// server.ts가 설정이 바뀌거나 파일이 추가/삭제될 때마다 setGlobalScopeFiles로 갱신해준다.
+let globalScopeFiles: string[] = [];
+
+export function setGlobalScopeFiles(files: string[]): void {
+  globalScopeFiles = files;
+}
+
 function fileVersion(fileName: string): string {
   try {
     return String(fs.statSync(fileName).mtimeMs);
@@ -76,7 +86,9 @@ function fileVersion(fileName: string): string {
 // - lib 파일: 실제 typescript-libs 디렉토리에서 그대로 읽어온다 (ts.sys에 의존하지 않음 -> 번들 후에도 안전)
 function createHost(): ts.LanguageServiceHost {
   return {
-    getScriptFileNames: () => [FILE_NAME, ...PROGRAM_LIB_FILES, ...currentImportedFiles],
+    getScriptFileNames: () => [
+      ...new Set([FILE_NAME, ...PROGRAM_LIB_FILES, ...currentImportedFiles, ...globalScopeFiles])
+    ],
     getScriptVersion: fileName => (fileName === FILE_NAME ? String(scriptVersion) : fileVersion(fileName)),
     getScriptSnapshot: fileName => {
       if (fileName === FILE_NAME) return ts.ScriptSnapshot.fromString(currentText);
@@ -193,6 +205,17 @@ function getLibDocument(fileName: string): TextDocument | null {
   return doc;
 }
 
+// offset이 속한 식별자(identifier) 전체 텍스트를 뽑아낸다 (Vue 휴리스틱 폴백용)
+function getIdentifierAt(text: string, offset: number): string | null {
+  const isIdentChar = (ch: string) => /[\w$]/.test(ch);
+  let start = offset;
+  while (start > 0 && isIdentChar(text[start - 1])) start--;
+  let end = offset;
+  while (end < text.length && isIdentChar(text[end])) end++;
+  if (start === end) return null;
+  return text.slice(start, end);
+}
+
 export function getJsDefinition(
   document: TextDocument,
   regions: DocumentRegions,
@@ -203,7 +226,47 @@ export function getJsDefinition(
   const offset = embedded.offsetAt(position);
 
   const defs = languageService.getDefinitionAtPosition(FILE_NAME, offset);
-  if (!defs || defs.length === 0) return null;
+  if (!defs || defs.length === 0) {
+    // TS가 못 찾은 경우 1: base.member / this.member 형태면 ES5 프로토타입 상속
+    // 체인(Object.create, new Parent() 등)을 따라가며 부모 프로토타입 멤버를 찾아본다
+    // (base가 있으므로 Vue 휴리스틱보다 더 정밀함 - 먼저 시도)
+    const memberCtx = getMemberAccessContext(currentText, offset);
+    if (memberCtx) {
+      const memberName = currentText.slice(memberCtx.memberStart, memberCtx.memberEnd);
+      const found = findPrototypeChainDefinition(currentText, memberCtx.base, memberName, offset);
+      if (found) {
+        return [
+          {
+            uri: document.uri,
+            range: {
+              start: document.positionAt(found.start),
+              end: document.positionAt(found.end)
+            }
+          }
+        ];
+      }
+    }
+
+    // TS가 못 찾은 경우 2: Vue methods/computed/data 안의 동일 이름 속성으로 시도
+    // (methods: { foo(){} } 같은 객체 속성은 템플릿의 @click="foo"와 정적으로 연결되지 않으므로)
+    const name = getIdentifierAt(currentText, offset);
+    if (name) {
+      const found = findVueMemberOffset(currentText, name);
+      if (found) {
+        return [
+          {
+            uri: document.uri,
+            range: {
+              start: document.positionAt(found.start),
+              end: document.positionAt(found.end)
+            }
+          }
+        ];
+      }
+    }
+
+    return null;
+  }
 
   const locations: Location[] = [];
   for (const def of defs) {
