@@ -15,7 +15,8 @@ import {
 import { TextDocument } from 'vscode-languageserver-textdocument';
 
 import { getDocumentRegions } from './embeddedSupport';
-import { getHtmlCompletions, getHtmlHover, getDocumentFormattingEdits } from './modes/htmlMode';
+import { getHtmlCompletions, getHtmlHover } from './modes/htmlMode';
+import { getDocumentFormattingEdits } from './modes/formatMode';
 import { getJsCompletions, getJsHover, getJsDefinition, setGlobalScopeFiles } from './modes/javascriptMode';
 import { getJspCompletions } from './modes/jspMode';
 import { getTaglibCompletions, getDiscoveredTaglibSuggestions } from './modes/taglibMode';
@@ -31,6 +32,16 @@ let workspaceRoots: string[] = [];
 let clientSupportsWatchedFiles = false;
 let clientSupportsPullConfig = false;
 let globalScopeFolders: string[] = [];
+let formatWrapLineLength: number | undefined;
+let formatWrapAttributes:
+  | 'auto'
+  | 'force'
+  | 'force-aligned'
+  | 'force-expand-multiline'
+  | 'aligned-multiple'
+  | 'preserve'
+  | 'preserve-aligned'
+  | undefined;
 
 function toFsPath(uri: string): string | null {
   try {
@@ -51,6 +62,20 @@ async function refreshGlobalScope(): Promise<void> {
       globalScopeFolders = Array.isArray(value) ? value.filter(v => typeof v === 'string') : [];
     } catch (err) {
       connection.console.error(`[jsp] config fetch failed: ${String(err)}`);
+    }
+
+    try {
+      const wrapLen = await connection.workspace.getConfiguration({
+        section: 'jsp.format.wrapLineLength'
+      });
+      formatWrapLineLength = typeof wrapLen === 'number' ? wrapLen : undefined;
+
+      const wrapAttrs = await connection.workspace.getConfiguration({
+        section: 'jsp.format.wrapAttributes'
+      });
+      formatWrapAttributes = typeof wrapAttrs === 'string' ? (wrapAttrs as typeof formatWrapAttributes) : undefined;
+    } catch (err) {
+      connection.console.error(`[jsp] format config fetch failed: ${String(err)}`);
     }
   }
 
@@ -208,7 +233,11 @@ connection.onDefinition((params): Definition | null => {
 connection.onDocumentFormatting(params => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
-  return getDocumentFormattingEdits(document, params.options);
+  const regions = getDocumentRegions(document);
+  return getDocumentFormattingEdits(document, regions, params.options, {
+    wrapLineLength: formatWrapLineLength,
+    wrapAttributes: formatWrapAttributes
+  });
 });
 
 documents.listen(connection);

@@ -11,6 +11,8 @@ export interface EmbeddedRegion {
   languageId: EmbeddedLanguageId;
   start: number;
   end: number;
+  /** 'script-body'는 실제 <script>...</script> 본문, 'attribute-expr'은 @click 같은 속성값 조각 */
+  kind?: 'script-body' | 'attribute-expr';
 }
 
 export interface DocumentRegions {
@@ -18,6 +20,8 @@ export interface DocumentRegions {
   getEmbeddedDocument(languageId: EmbeddedLanguageId): TextDocument;
   /** <script src="..."> 로 참조된 외부 JS 파일 경로(원본 문자열, 미해석) 목록 */
   getImportedScripts(): string[];
+  /** 실제 <script>...</script> 본문 범위만 (Vue 속성값 조각 제외) - 서식 정렬용 */
+  getScriptBodyRanges(): { start: number; end: number }[];
 }
 
 const htmlLanguageService = getHTMLLanguageService();
@@ -96,7 +100,8 @@ export function getDocumentRegions(document: TextDocument): DocumentRegions {
         regions.push({
           languageId: 'javascript',
           start: scanner.getTokenOffset(),
-          end: scanner.getTokenEnd()
+          end: scanner.getTokenEnd(),
+          kind: 'script-body'
         });
         break;
       case TokenType.Styles:
@@ -125,7 +130,12 @@ export function getDocumentRegions(document: TextDocument): DocumentRegions {
           const innerStart = hasQuotes ? start + 1 : start;
           const innerEnd = hasQuotes ? end - 1 : end;
           if (innerEnd > innerStart) {
-            regions.push({ languageId: 'javascript', start: innerStart, end: innerEnd });
+            regions.push({
+              languageId: 'javascript',
+              start: innerStart,
+              end: innerEnd,
+              kind: 'attribute-expr'
+            });
           }
         }
         lastAttributeName = undefined;
@@ -167,6 +177,11 @@ export function getDocumentRegions(document: TextDocument): DocumentRegions {
     },
     getImportedScripts(): string[] {
       return importedScripts;
+    },
+    getScriptBodyRanges(): { start: number; end: number }[] {
+      return regions
+        .filter(r => r.kind === 'script-body')
+        .map(r => ({ start: r.start, end: r.end }));
     }
   };
 }

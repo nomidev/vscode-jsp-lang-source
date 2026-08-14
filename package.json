@@ -2,7 +2,7 @@
   "name": "vscode-jsp-lang",
   "displayName": "JSP Language Support (HTML/JS Embedded)",
   "description": "JSP syntax highlighting + IntelliSense for embedded HTML and JavaScript",
-  "version": "0.7.0",
+  "version": "0.8.1",
   "publisher": "local-dev",
   "engines": {
     "vscode": "^1.85.0"
@@ -53,6 +53,25 @@
           },
           "default": [],
           "description": "이 폴더(워크스페이스 루트 기준 상대경로) 안의 .js 파일은 <script src>로 명시적으로 연결되어 있지 않아도 항상 전역 스코프에 포함됩니다. AJAX 등으로 런타임에 동적으로 로드되는 스크립트처럼 정적 분석으로 추적할 수 없는 파일에 사용하세요. 예: [\"src/main/webapp/js/common\"]"
+        },
+        "jsp.format.wrapLineLength": {
+          "type": "number",
+          "default": 120,
+          "description": "문서 서식(Format Document) 정렬 시 HTML 줄을 강제로 줄바꿈하는 최대 글자 수입니다. 속성이 많은 긴 태그가 애매한 위치에서 잘려 보기 불편하다면 0으로 설정해 줄바꿈을 끄거나, 더 큰 값을 넣어 여유를 주세요."
+        },
+        "jsp.format.wrapAttributes": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "force",
+            "force-aligned",
+            "force-expand-multiline",
+            "aligned-multiple",
+            "preserve",
+            "preserve-aligned"
+          ],
+          "default": "auto",
+          "description": "문서 서식 정렬 시 태그 속성이 많을 때 줄바꿈하는 방식입니다. 'preserve'는 원래 작성한 줄바꿈을 최대한 그대로 유지합니다."
         }
       }
     }

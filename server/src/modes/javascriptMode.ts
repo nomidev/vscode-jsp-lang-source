@@ -6,6 +6,7 @@ import {
   CompletionList,
   CompletionItemKind,
   Definition,
+  FormattingOptions,
   Hover,
   Location,
   Position
@@ -142,6 +143,48 @@ function syncText(
     .filter((p): p is string => p !== null);
 
   return embedded;
+}
+
+// 원본 문서와 별개로, JS 코드 조각 하나를 TypeScript 자체 포맷 기능으로 정렬한다.
+// <script> 본문을 "문서 서식(Format Document)" 기능에서 사용 - baseIndentSize를
+// 그 <script> 태그가 최종적으로 위치할 들여쓰기 깊이에 맞춰주면, 결과 JS 코드가
+// 문서 전체 구조에 자연스럽게 맞물린다.
+export function formatJsSnippet(rawJs: string, baseIndentSize: number, options: FormattingOptions): string {
+  const snippetFile = '__format_snippet__.js';
+  const host: ts.LanguageServiceHost = {
+    getScriptFileNames: () => [snippetFile, ...PROGRAM_LIB_FILES],
+    getScriptVersion: () => '1',
+    getScriptSnapshot: fileName => {
+      if (fileName === snippetFile) return ts.ScriptSnapshot.fromString(rawJs);
+      if (fs.existsSync(fileName)) return ts.ScriptSnapshot.fromString(fs.readFileSync(fileName, 'utf8'));
+      return undefined;
+    },
+    getCurrentDirectory: () => '',
+    getCompilationSettings: () => COMPILER_OPTIONS,
+    getDefaultLibFileName: () => DEFAULT_LIB_PATH,
+    fileExists: fileName => fileName === snippetFile || fs.existsSync(fileName),
+    readFile: fileName =>
+      fileName === snippetFile ? rawJs : fs.existsSync(fileName) ? fs.readFileSync(fileName, 'utf8') : undefined,
+    directoryExists: dirName => dirName === LIB_DIR || fs.existsSync(dirName),
+    getDirectories: () => []
+  };
+
+  const snippetService = ts.createLanguageService(host, ts.createDocumentRegistry());
+  const settings: ts.FormatCodeSettings = {
+    ...ts.getDefaultFormatCodeSettings('\n'),
+    baseIndentSize,
+    indentSize: options.tabSize,
+    tabSize: options.tabSize,
+    convertTabsToSpaces: options.insertSpaces
+  };
+
+  const edits = snippetService.getFormattingEditsForRange(snippetFile, 0, rawJs.length, settings);
+  let result = rawJs;
+  const sorted = [...edits].sort((a, b) => b.span.start - a.span.start);
+  for (const edit of sorted) {
+    result = result.slice(0, edit.span.start) + edit.newText + result.slice(edit.span.start + edit.span.length);
+  }
+  return result;
 }
 
 export function getJsCompletions(
