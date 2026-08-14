@@ -66,6 +66,22 @@ function lineIndentColumns(text: string, offset: number, tabSize: number): numbe
   return columns;
 }
 
+// 문서에서 실제로 쓰인 커스텀 taglib 태그(<prefix:tagName ...>)의 "prefix:tagName" 목록을
+// 중복 없이 뽑아낸다. HTML 포매터의 unformatted 옵션에 넘겨서, 표준 HTML 인라인 요소
+// 목록에 없는 이 태그들 때문에 <a><my:tag/></a> 같은 코드가 원본에 없던 줄바꿈으로
+// 강제로 쪼개지는 걸 막는다. (직접 검증: <br/>나 <span></span>처럼 포매터가 아는
+// 표준 인라인 태그는 안 쪼개지지만, <aaa:message/> 같은 미지의 태그명은 기본적으로
+// "블록 레벨"로 취급되어 강제 줄바꿈이 생긴다)
+function findCustomTagNames(text: string): string {
+  const names = new Set<string>();
+  const re = /<\/?([A-Za-z_][\w-]*):([A-Za-z_][\w-]*)\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    names.add(`${m[1]}:${m[2]}`);
+  }
+  return [...names].join(',');
+}
+
 /**
  * JSP 문서 전체를 정렬한다.
  * 1) 원본 문서를 templating:'erb' 옵션으로 HTML 포매터에 그대로 넘겨 구조를 정렬한다.
@@ -83,10 +99,12 @@ export function getDocumentFormattingEdits(
   options: FormattingOptions,
   overrides: FormatOverrides = {}
 ): TextEdit[] {
+  const customTagNames = findCustomTagNames(document.getText());
   const htmlEdits = htmlLanguageService.format(document, undefined, {
     tabSize: options.tabSize,
     insertSpaces: options.insertSpaces,
     templating: ['erb'],
+    ...(customTagNames ? { unformatted: customTagNames } : {}),
     ...(overrides.wrapLineLength !== undefined ? { wrapLineLength: overrides.wrapLineLength } : {}),
     ...(overrides.wrapAttributes !== undefined ? { wrapAttributes: overrides.wrapAttributes } : {})
   });
