@@ -9,7 +9,9 @@ import {
   FormattingOptions,
   Hover,
   Location,
-  Position
+  Position,
+  Range,
+  TextEdit
 } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { DocumentRegions } from '../embeddedSupport';
@@ -185,6 +187,38 @@ export function formatJsSnippet(rawJs: string, baseIndentSize: number, options: 
     result = result.slice(0, edit.span.start) + edit.newText + result.slice(edit.span.start + edit.span.length);
   }
   return result;
+}
+
+// "선택 영역 서식(Format Selection)" 용. formatJsSnippet과 달리 문서 전체를
+// 새로 만들지 않고, 실제로 유지 중인 임베디드 JS 가상 문서(오프셋이 원본 문서와
+// 그대로 일치함)에 대고 TS의 범위 포맷 API를 바로 호출한다. 주변 <script> 코드가
+// 이미 어느 정도 들여써져 있으면 TS가 그 문맥을 보고 알아서 맞춰준다.
+export function getJsFormattingEdits(
+  document: TextDocument,
+  regions: DocumentRegions,
+  range: Range,
+  options: FormattingOptions,
+  workspaceRoots: string[]
+): TextEdit[] {
+  const embedded = syncText(document, regions, workspaceRoots);
+  const startOffset = embedded.offsetAt(range.start);
+  const endOffset = embedded.offsetAt(range.end);
+
+  const settings: ts.FormatCodeSettings = {
+    ...ts.getDefaultFormatCodeSettings('\n'),
+    indentSize: options.tabSize,
+    tabSize: options.tabSize,
+    convertTabsToSpaces: options.insertSpaces
+  };
+
+  const edits = languageService.getFormattingEditsForRange(FILE_NAME, startOffset, endOffset, settings);
+  return edits.map(edit => ({
+    range: {
+      start: document.positionAt(edit.span.start),
+      end: document.positionAt(edit.span.start + edit.span.length)
+    },
+    newText: edit.newText
+  }));
 }
 
 export function getJsCompletions(

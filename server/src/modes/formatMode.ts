@@ -3,10 +3,10 @@ import {
   LanguageService as HTMLLanguageService,
   TokenType
 } from 'vscode-html-languageservice';
-import { FormattingOptions, TextEdit } from 'vscode-languageserver';
+import { FormattingOptions, Range, TextEdit } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { DocumentRegions } from '../embeddedSupport';
-import { formatJsSnippet } from './javascriptMode';
+import { formatJsSnippet, getJsFormattingEdits } from './javascriptMode';
 
 const htmlLanguageService: HTMLLanguageService = getHTMLLanguageService();
 
@@ -141,4 +141,42 @@ export function getDocumentFormattingEdits(
       newText: structuredText
     }
   ];
+}
+
+/**
+ * 선택 영역만 정렬한다("Format Selection"). 문서 전체를 새로 만드는 전체 서식과
+ * 달리, 선택 영역이 통째로 하나의 <script> 본문 안에 있으면 TypeScript 범위 포맷
+ * API로 그 부분만 직접 정렬하고(원본 문서와 오프셋이 같은 임베디드 문서를 쓰므로
+ * 별도 좌표 변환이 필요 없다), 그 외(HTML 위주 선택)에는 HTML 포매터의 range
+ * 파라미터로 그 선택 범위만 정렬한다. JSP 스크립틀릿 보존을 위해 이 경우에도
+ * templating:'erb' 옵션을 그대로 쓴다.
+ */
+export function getRangeFormattingEdits(
+  document: TextDocument,
+  regions: DocumentRegions,
+  range: Range,
+  options: FormattingOptions,
+  workspaceRoots: string[],
+  overrides: FormatOverrides = {}
+): TextEdit[] {
+  const startOffset = document.offsetAt(range.start);
+  const endOffset = document.offsetAt(range.end);
+
+  const enclosingScriptBody = regions
+    .getScriptBodyRanges()
+    .find(r => startOffset >= r.start && endOffset <= r.end);
+
+  if (enclosingScriptBody) {
+    return getJsFormattingEdits(document, regions, range, options, workspaceRoots);
+  }
+
+  const customTagNames = findCustomTagNames(document.getText());
+  return htmlLanguageService.format(document, range, {
+    tabSize: options.tabSize,
+    insertSpaces: options.insertSpaces,
+    templating: ['erb'],
+    ...(customTagNames ? { unformatted: customTagNames } : {}),
+    ...(overrides.wrapLineLength !== undefined ? { wrapLineLength: overrides.wrapLineLength } : {}),
+    ...(overrides.wrapAttributes !== undefined ? { wrapAttributes: overrides.wrapAttributes } : {})
+  });
 }

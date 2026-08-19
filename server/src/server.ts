@@ -16,7 +16,7 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 
 import { getDocumentRegions } from './embeddedSupport';
 import { getHtmlCompletions, getHtmlHover } from './modes/htmlMode';
-import { getDocumentFormattingEdits } from './modes/formatMode';
+import { getDocumentFormattingEdits, getRangeFormattingEdits } from './modes/formatMode';
 import { getJsCompletions, getJsHover, getJsDefinition, setGlobalScopeFiles } from './modes/javascriptMode';
 import { getJspCompletions } from './modes/jspMode';
 import { getTaglibCompletions, getDiscoveredTaglibSuggestions } from './modes/taglibMode';
@@ -123,7 +123,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       },
       hoverProvider: true,
       definitionProvider: true,
-      documentFormattingProvider: true
+      documentFormattingProvider: true,
+      documentRangeFormattingProvider: true
     }
   };
 });
@@ -235,6 +236,16 @@ connection.onDocumentFormatting(params => {
   if (!document) return [];
   const regions = getDocumentRegions(document);
   return getDocumentFormattingEdits(document, regions, params.options, {
+    wrapLineLength: formatWrapLineLength,
+    wrapAttributes: formatWrapAttributes
+  });
+});
+
+connection.onDocumentRangeFormatting(params => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return [];
+  const regions = getDocumentRegions(document);
+  return getRangeFormattingEdits(document, regions, params.range, params.options, workspaceRoots, {
     wrapLineLength: formatWrapLineLength,
     wrapAttributes: formatWrapAttributes
   });
