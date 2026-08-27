@@ -12,6 +12,33 @@ export interface ScanResult {
   missingFolders: string[];
 }
 
+// "LGCOM/src/..." 처럼 상대경로의 첫 조각과, 그 뒤 나머지를 분리한다.
+// (구분자가 '/'든 '\'든 상관없이 동작하도록 정규화)
+function splitFirstSegment(relPath: string): { first: string; rest: string } | null {
+  const normalized = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
+  const idx = normalized.indexOf('/');
+  if (idx === -1) return null;
+  return { first: normalized.slice(0, idx), rest: normalized.slice(idx + 1) };
+}
+
+// (root, rel) 하나에 대해 실제로 시도해볼 후보 절대경로들을 우선순위대로 반환한다.
+//
+// 멀티루트 워크스페이스(예: 워크스페이스 루트가 .../LGCOM, .../LGFIN, .../LGICM 각각)에서는
+// 설정값을 "LGCOM/src/main/webapp/static/js"처럼 모듈 이름을 접두어로 써서 특정 루트를
+// 가리키도록 작성하는 경우가 흔하다. 이때 그냥 root + rel 로 이어붙이면
+// ".../LGCOM/LGCOM/src/..." 처럼 모듈명이 중복돼서 못 찾는다.
+// rel의 첫 조각이 root 폴더 이름과 같으면, 그 조각을 뗀 나머지를 그 root에 이어붙인
+// 경로도 함께 시도한다.
+function resolveCandidates(root: string, rel: string): string[] {
+  const candidates: string[] = [];
+  const split = splitFirstSegment(rel);
+  if (split && split.first.toLowerCase() === path.basename(root).toLowerCase()) {
+    candidates.push(path.join(root, split.rest));
+  }
+  candidates.push(path.join(root, rel));
+  return candidates;
+}
+
 // jsp.javascript.globalScopeFolders 설정에 지정된 폴더들을 스캔해서
 // <script src> 연결 여부와 무관하게 항상 JS 언어 서비스 전역 스코프에 포함시킬
 // .js 파일 목록을 관리한다. (IntelliJ/WebStorm의 "전역 리졸브 스코프"와 유사한 방식)
@@ -34,10 +61,12 @@ export class GlobalScopeIndex {
     for (const rel of relativeFolders) {
       let existedInAnyRoot = false;
       for (const root of workspaceRoots) {
-        const start = path.join(root, rel);
-        if (fs.existsSync(start)) {
-          existedInAnyRoot = true;
-          await this.walk(start, 0, found);
+        for (const candidate of resolveCandidates(root, rel)) {
+          if (fs.existsSync(candidate)) {
+            existedInAnyRoot = true;
+            await this.walk(candidate, 0, found);
+            break; // 이 root에서는 첫 매칭 후보만 사용 (같은 폴더 중복 스캔 방지)
+          }
         }
       }
       if (!existedInAnyRoot) missingFolders.push(rel);
