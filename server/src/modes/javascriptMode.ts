@@ -111,7 +111,11 @@ function createHost(): ts.LanguageServiceHost {
   };
 }
 
-const languageService = ts.createLanguageService(createHost(), ts.createDocumentRegistry());
+// 메인 언어 서비스와 아래 스니펫 포맷용 언어 서비스가 같은 DocumentRegistry를 공유한다.
+// TS lib(dom/es2020 등, 약 3MB어치 AST)가 registry에 캐시되어 두 서비스가 재사용하므로,
+// 스니펫 포맷을 아무리 반복 호출해도 lib를 다시 파싱하지 않는다.
+const sharedDocumentRegistry = ts.createDocumentRegistry();
+const languageService = ts.createLanguageService(createHost(), sharedDocumentRegistry);
 
 const KIND_MAP: Record<string, CompletionItemKind> = {
   [ts.ScriptElementKind.functionElement]: CompletionItemKind.Function,
@@ -147,31 +151,48 @@ function syncText(
   return embedded;
 }
 
-// 원본 문서와 별개로, JS 코드 조각 하나를 TypeScript 자체 포맷 기능으로 정렬한다.
-// <script> 본문을 "문서 서식(Format Document)" 기능에서 사용 - baseIndentSize를
-// 그 <script> 태그가 최종적으로 위치할 들여쓰기 깊이에 맞춰주면, 결과 JS 코드가
-// 문서 전체 구조에 자연스럽게 맞물린다.
-export function formatJsSnippet(rawJs: string, baseIndentSize: number, options: FormattingOptions): string {
-  const snippetFile = '__format_snippet__.js';
-  const host: ts.LanguageServiceHost = {
-    getScriptFileNames: () => [snippetFile, ...PROGRAM_LIB_FILES],
-    getScriptVersion: () => '1',
+// formatJsSnippet 전용 가상 파일. 매 호출마다 언어 서비스를 새로 만드는 대신,
+// 이 파일 하나의 내용/버전만 갱신해서 상시 유지되는 서비스를 재사용한다.
+// (예전엔 호출마다 ts.createLanguageService + ts.createDocumentRegistry를 새로 만들어서
+//  TS 내장 lib(약 3MB어치 AST)를 매번 처음부터 다시 파싱했다 - 누수는 아니었지만 낭비였음)
+const SNIPPET_FILE = '__format_snippet__.js';
+let currentSnippetText = '';
+let snippetVersion = 0;
+
+function createSnippetHost(): ts.LanguageServiceHost {
+  return {
+    getScriptFileNames: () => [SNIPPET_FILE, ...PROGRAM_LIB_FILES],
+    getScriptVersion: fileName => (fileName === SNIPPET_FILE ? String(snippetVersion) : '1'),
     getScriptSnapshot: fileName => {
-      if (fileName === snippetFile) return ts.ScriptSnapshot.fromString(rawJs);
+      if (fileName === SNIPPET_FILE) return ts.ScriptSnapshot.fromString(currentSnippetText);
       if (fs.existsSync(fileName)) return ts.ScriptSnapshot.fromString(fs.readFileSync(fileName, 'utf8'));
       return undefined;
     },
     getCurrentDirectory: () => '',
     getCompilationSettings: () => COMPILER_OPTIONS,
     getDefaultLibFileName: () => DEFAULT_LIB_PATH,
-    fileExists: fileName => fileName === snippetFile || fs.existsSync(fileName),
+    fileExists: fileName => fileName === SNIPPET_FILE || fs.existsSync(fileName),
     readFile: fileName =>
-      fileName === snippetFile ? rawJs : fs.existsSync(fileName) ? fs.readFileSync(fileName, 'utf8') : undefined,
+      fileName === SNIPPET_FILE
+        ? currentSnippetText
+        : fs.existsSync(fileName)
+          ? fs.readFileSync(fileName, 'utf8')
+          : undefined,
     directoryExists: dirName => dirName === LIB_DIR || fs.existsSync(dirName),
     getDirectories: () => []
   };
+}
 
-  const snippetService = ts.createLanguageService(host, ts.createDocumentRegistry());
+const snippetLanguageService = ts.createLanguageService(createSnippetHost(), sharedDocumentRegistry);
+
+// 원본 문서와 별개로, JS 코드 조각 하나를 TypeScript 자체 포맷 기능으로 정렬한다.
+// <script> 본문을 "문서 서식(Format Document)" 기능에서 사용 - baseIndentSize를
+// 그 <script> 태그가 최종적으로 위치할 들여쓰기 깊이에 맞춰주면, 결과 JS 코드가
+// 문서 전체 구조에 자연스럽게 맞물린다.
+export function formatJsSnippet(rawJs: string, baseIndentSize: number, options: FormattingOptions): string {
+  currentSnippetText = rawJs;
+  snippetVersion++;
+
   const settings: ts.FormatCodeSettings = {
     ...ts.getDefaultFormatCodeSettings('\n'),
     baseIndentSize,
@@ -180,7 +201,7 @@ export function formatJsSnippet(rawJs: string, baseIndentSize: number, options: 
     convertTabsToSpaces: options.insertSpaces
   };
 
-  const edits = snippetService.getFormattingEditsForRange(snippetFile, 0, rawJs.length, settings);
+  const edits = snippetLanguageService.getFormattingEditsForRange(SNIPPET_FILE, 0, rawJs.length, settings);
   let result = rawJs;
   const sorted = [...edits].sort((a, b) => b.span.start - a.span.start);
   for (const edit of sorted) {
