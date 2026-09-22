@@ -15,7 +15,7 @@ import {
 import { TextDocument } from 'vscode-languageserver-textdocument';
 
 import { getDocumentRegions } from './embeddedSupport';
-import { getHtmlCompletions, getHtmlHover } from './modes/htmlMode';
+import { getHtmlCompletions, getHtmlHover, getTagCompletion, getLinkedEditingRanges } from './modes/htmlMode';
 import { getDocumentFormattingEdits, getRangeFormattingEdits } from './modes/formatMode';
 import { getJsCompletions, getJsHover, getJsDefinition, setGlobalScopeFiles } from './modes/javascriptMode';
 import { getJspCompletions } from './modes/jspMode';
@@ -124,7 +124,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       hoverProvider: true,
       definitionProvider: true,
       documentFormattingProvider: true,
-      documentRangeFormattingProvider: true
+      documentRangeFormattingProvider: true,
+      linkedEditingRangeProvider: true
     }
   };
 });
@@ -250,6 +251,27 @@ connection.onDocumentRangeFormatting(params => {
     wrapAttributes: formatWrapAttributes
   });
 });
+
+// "태그 rename" - 여는/닫는 태그 이름을 동시에 편집. LSP 표준 기능이라 서버 캐퍼빌리티
+// 선언 + 이 핸들러만 있으면 VS Code가 알아서 UI를 처리해준다.
+connection.languages.onLinkedEditingRange(params => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return null;
+  const regions = getDocumentRegions(document);
+  return getLinkedEditingRanges(document, regions, params.position);
+});
+
+// "HTML 태그 자동완성(닫는 태그 자동 삽입)" - LSP 표준 요청이 아니라서, 클라이언트가
+// '>' 나 '/' 를 타이핑한 직후 이 커스텀 요청을 보내면 스니펫 문자열을 돌려준다.
+connection.onRequest(
+  'jsp/tagComplete',
+  (params: { textDocument: { uri: string }; position: { line: number; character: number } }) => {
+    const document = documents.get(params.textDocument.uri);
+    if (!document) return null;
+    const regions = getDocumentRegions(document);
+    return getTagCompletion(document, regions, params.position);
+  }
+);
 
 documents.listen(connection);
 connection.listen();
