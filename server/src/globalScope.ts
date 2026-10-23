@@ -39,6 +39,12 @@ function resolveCandidates(root: string, rel: string): string[] {
   return candidates;
 }
 
+// 경로 비교용 정규화 (구분자/대소문자 차이 무시). Windows 에서는 대소문자를 구분하지 않고,
+// 그 외 환경에서 생길 수 있는 오탐은 재스캔이 한 번 더 도는 정도라 무해하다.
+function normalizeForCompare(p: string): string {
+  return path.resolve(p).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
 // jsp.javascript.globalScopeFolders 설정에 지정된 폴더들을 스캔해서
 // <script src> 연결 여부와 무관하게 항상 JS 언어 서비스 전역 스코프에 포함시킬
 // .js 파일 목록을 관리한다. (IntelliJ/WebStorm의 "전역 리졸브 스코프"와 유사한 방식)
@@ -47,6 +53,25 @@ export class GlobalScopeIndex {
 
   getFiles(): string[] {
     return this.files;
+  }
+
+  /**
+   * 변경된 파일이 jsp.javascript.globalScopeFolders 로 지정한 폴더 안에 있는지 확인한다.
+   * 파일 변경 알림이 올 때 "전역 스코프 목록을 다시 만들어야 하는 변경인지" 거르는 용도이며,
+   * 폴더가 아직 없어도(나중에 생길 수도 있으므로) 설정값만으로 판단한다.
+   */
+  isInsideConfiguredFolders(filePath: string, workspaceRoots: string[], relativeFolders: string[]): boolean {
+    if (relativeFolders.length === 0) return false;
+    const target = normalizeForCompare(filePath);
+    for (const root of workspaceRoots) {
+      for (const rel of relativeFolders) {
+        for (const candidate of resolveCandidates(root, rel)) {
+          const dir = normalizeForCompare(candidate);
+          if (target === dir || target.startsWith(dir + '/')) return true;
+        }
+      }
+    }
+    return false;
   }
 
   async scan(workspaceRoots: string[], relativeFolders: string[]): Promise<ScanResult> {

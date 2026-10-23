@@ -91,15 +91,24 @@ export class TldRegistry {
     return [...this.byPath.values()];
   }
 
+  // 새 인덱스를 따로 만든 뒤 한 번에 교체한다. (예전에는 먼저 비우고 채웠기 때문에, 스캔하는 동안
+  // 커스텀 태그 자동완성이 잠깐씩 사라지는 구간이 있었다.)
   async scanWorkspace(roots: string[]): Promise<void> {
-    this.byUri.clear();
-    this.byPath.clear();
+    const byPath = new Map<string, TldInfo>();
+    const byUri = new Map<string, TldInfo>();
     for (const root of roots) {
-      await this.walk(root, 0);
+      await this.walk(root, 0, byPath, byUri);
     }
+    this.byPath = byPath;
+    this.byUri = byUri;
   }
 
-  private async walk(dir: string, depth: number): Promise<void> {
+  private async walk(
+    dir: string,
+    depth: number,
+    byPath: Map<string, TldInfo>,
+    byUri: Map<string, TldInfo>
+  ): Promise<void> {
     if (depth > MAX_DEPTH) return;
     let entries: fs.Dirent[];
     try {
@@ -111,19 +120,27 @@ export class TldRegistry {
       if (entry.name.startsWith('.') || SKIP_DIRS.has(entry.name)) continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        await this.walk(full, depth + 1);
+        await this.walk(full, depth + 1, byPath, byUri);
       } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.tld')) {
-        await this.loadFile(full);
+        await this.readInto(full, byPath, byUri);
       }
     }
   }
 
   async loadFile(filePath: string): Promise<void> {
+    await this.readInto(filePath, this.byPath, this.byUri);
+  }
+
+  private async readInto(
+    filePath: string,
+    byPath: Map<string, TldInfo>,
+    byUri: Map<string, TldInfo>
+  ): Promise<void> {
     try {
       const content = await fs.promises.readFile(filePath, 'utf8');
       const info = parseTld(content, filePath);
-      this.byPath.set(filePath, info);
-      if (info.uri) this.byUri.set(info.uri, info);
+      byPath.set(filePath, info);
+      if (info.uri) byUri.set(info.uri, info);
     } catch {
       // 개별 tld 파싱 실패가 전체 기능을 막지 않도록 조용히 무시
     }
